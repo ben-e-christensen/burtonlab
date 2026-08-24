@@ -37,4 +37,3 @@ module plate(){
 }
 
 
-plate();

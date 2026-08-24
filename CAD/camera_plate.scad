@@ -25,7 +25,7 @@ module post() {
     }
 }
 
-module plate(){
+module camera_plate(){
     difference(){
         square([distance,depth],center=true);
         for(i=[0:1]){
@@ -47,4 +47,3 @@ module holes(){
         circle(d=bolt);
     }
 
-plate();
