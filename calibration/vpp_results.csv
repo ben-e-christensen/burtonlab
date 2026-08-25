@@ -1,6 +1,6 @@
 group,file,channel,drive_Vpp,sensor_Vpp,ratio
-tube,al tube - midway.CSV,CH1,20.0,0.2,0.01
 tube,al tube just ball.CSV,CH1,20.0,0.10200000000000001,0.0051
+tube,al tube - midway.CSV,CH1,20.0,0.2,0.01
 tube,al tube just wire.CSV,CH1,20.0,0.304,0.0152
 rings,pmma tube ball in front of black sensor.CSV,CH1,20.0,0.029199999999999997,0.00146
 rings,pmma tube ball in front of black sensor.CSV,CH2,20.0,0.007199999999999998,0.0003599999999999999

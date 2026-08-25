@@ -32,7 +32,8 @@ join();
 translate([(15*in+2+(in+5)*2),2*in,0])
 join();
 
-translate([(15*in+2+(in+5)*3),-2*in-2,0])
+translate([(15*in+2+(in+5)),(-2*in-2)*3,0])
 join();
-translate([(15*in+2+(in+5)*3),2*in,0])
+translate([(15*in+2+(in+5)*2),(-2*in-2)*3,0])
 join();
+

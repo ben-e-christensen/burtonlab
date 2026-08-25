@@ -1,30 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Aug 19 13:50:41 2026
 
-@author: burtonlabuser
-"""
-
-# -*- coding: utf-8 -*-
-"""
-plot_scope_csv.py
-
-Plots a CSV that the GDS-1054B wrote directly to a USB stick (DS0001.CSV
-and friends) -- no scope connection needed.
-
-These files are NOT plain two-column CSVs. They have a ~24-line metadata
-header (Memory Length, Sampling Period, Vertical Scale, etc.), then a
-"Waveform Data," marker line, then time,voltage rows. Every row also ends
-in a trailing comma, which naive parsers read as a third empty column.
-This script handles all of that.
-
-The time column is already in seconds and already referenced to the
-trigger (negative = pre-trigger), so no conversion is needed.
-
-Run cell-by-cell in Spyder (Ctrl+Enter), or as a plain script.
-"""
-
-# %% Imports
 import os
 import glob
 import numpy as np

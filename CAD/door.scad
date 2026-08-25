@@ -13,7 +13,7 @@ bolt_dist_x=4.3+bolt/2;
 bolt_dist_y_top=7.2+bolt/2;
 bolt_dist_y_bottom=6.6+bolt/2;
 
-cutout=2*in+1;
+cutout=2.25*in+1;
 
 offset=5;
 offset_mid=-3;
@@ -30,10 +30,13 @@ module plate(){
         square([x,y],center=true);
         translate([-x/2+hinge_x-bolt_dist_x,0])
         hinge_holes();
-        translate([x/2-(x-y)/2+.1,y/2-cutout/2+.01])
-        square([x-y,cutout],center=true);
+        translate([x/2-(x-y+1/4*in)/2+.1,y/2-cutout/2+.01])
+        square([x-y+1/4*in,cutout],center=true);
+        
+        translate([0,-y/2+1/8*in-.01])
+        square([x+1,1/4*in],center=true);
         
     }
 }
 
-
+plate();

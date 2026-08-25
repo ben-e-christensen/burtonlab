@@ -18,8 +18,8 @@ DRIVE_VPP = 20.0        # measured drive peak-to-peak [V]
 
 GROUPS = {
     'tube': [
-        G / 'al tube - midway.CSV',
         G / 'al tube just ball.CSV',
+        G / 'al tube - midway.CSV',
         G / 'al tube just wire.CSV',
     ],
     'rings': [

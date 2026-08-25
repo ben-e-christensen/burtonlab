@@ -9,4 +9,4 @@ Normal impedance matching lines, i.e. $R_L$ and $R_S$ both equal 50, makes $V_{l
 Given that, the charge on the ball (ignoring that of the wire and the little clump of solder connecting the two) is: 
 
 $Q=4\pi \epsilon _{0}rV$ 
-The radius of the ball is 3.175*10e-3m. At 10V the ball has a Q of 3.53pC and at -10V will have -3.53pC. So when we see the pulse of the square wave happens, in either direction, we should expect to see $\Delta Q$ of ~7pC.
+The radius of the ball is 3.175*10e-3m. At 10V the ball has a Q of 3.53pC and at -10V will have -3.53pC. So when we see the pulse of the square wave happens, in either direction, we should expect to see $\Delta Q$ of ~7pC. 

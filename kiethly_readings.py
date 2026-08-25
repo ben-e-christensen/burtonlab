@@ -9,7 +9,7 @@ ROOT_FOLDER = r'C:/Users/burtonlabuser/Desktop/ben'
 DELAY_MS    = 5
 DURATION_S  = 15       # None = run until Ctrl+C
 PREFACTOR   = 1e12      # C -> pC
-SERIAL_PORT = 'COM1'
+SERIAL_PORT = 'COM18'
 BAUDRATE    = 9600
 # ================================
 
