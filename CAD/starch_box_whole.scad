@@ -24,7 +24,7 @@ bolt=1/4*in+.2;
     side plate with tube hole
 */
 
-module bottom_plate(pock_r=1){
+module bottom_plate(){
     difference(){
         
         square(bottom_w,center=true);
@@ -55,7 +55,7 @@ module bottom_plate(pock_r=1){
             circle(d=bolt);
         }
         
-
+        pock_r     = .75;    // pock radius
 pock_field = 90;   // field diameter
 pock_pitch = 6;    // center-to-center spacing
 

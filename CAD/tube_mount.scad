@@ -2,14 +2,14 @@ $fn=100;
 
 
 IR=51.5/2;
-OR=IR+6;
+OR=IR+4;
 h=15;
-x=8;
-y=18;
+x=4;
+y=16.5;
 in=25.4;
 sq_x=100;
 sq_y=OR*2+25;
-sq_h=6;
+sq_h=4;
 
 bolt=in/4+.2;
 
@@ -31,7 +31,7 @@ module hole() {
     translate([-50,0,0])
     cube([sq_x,sq_y+2,100],center=true);
     }
-    translate([x/2,OR+y/4,h/2])
+    translate([x/2,OR+y/4+.13,h/2])
     difference(){
     cube([x,y,h],center=true);
         
@@ -40,7 +40,7 @@ module hole() {
         cylinder(100,d=bolt);
     }
     
-    translate([x/2,-OR-y/4,h/2])
+    translate([x/2,-OR-y/4-.13,h/2])
     difference(){
     cube([x,y,h],center=true);
         
@@ -52,4 +52,12 @@ module hole() {
     
 }
 
+translate([0,0,-sq_h/2-2-in/2])
+difference(){
+cylinder(in/2+1,IR,IR);
+    translate([-50,0,0])
+    cube([sq_x,sq_y+2,100],center=true);
+    translate([0,0,-5])
+cylinder(in,IR-4,IR-4);
+}
 hole();

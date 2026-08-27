@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+flies/Kiethley_data/
+flies/cam_data/

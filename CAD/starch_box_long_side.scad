@@ -21,6 +21,7 @@ bolt=1/4*in+.2;
 module long_side(pock_r=1.5,pock=true){
     difference(){
     square([long,bottom_w],center=true);
+        circle(d=90);
 
         
                 for(i=[0:1]){
@@ -61,6 +62,9 @@ for (j = [-ceil(R/row_h) : ceil(R/row_h)]) {
     }
      
     }}
-}
+    
+    square([long,in/4],center=true);
+    square([in/4,bottom_w],center=true);
+    }
 
 long_side();
