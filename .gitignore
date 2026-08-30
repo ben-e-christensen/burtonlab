@@ -218,4 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 flies/Kiethley_data/
+flies/Kiethley_data_old/
 flies/cam_data/
+
+flies/.venv312
