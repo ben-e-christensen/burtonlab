@@ -49,6 +49,12 @@ difference(){
     
 }
 
+for(i=[0:1])
+    translate([(-1)^i*(w-1), actual_h/2, z/2])
+    rotate([90,0,90])
+    linear_extrude(z, center=true)
+    polygon(points=[[z,-z], [-15, -z], [z, 50]]);
+
 }
 
 plate();

@@ -2,7 +2,7 @@ $fn=100;
 
 in=25.4;
 thickness=20;
-OD=7.75*in;
+OD=7.85*in;
 OOD=OD+15;
 
 to_bar=(4.5*in)-OD/2;
