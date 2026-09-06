@@ -1,9 +1,7 @@
-"""Electrometer (voltage mode) + dual Brio 101 + FLIR Grasshopper3 logger.
+"""Electrometer (current mode) + dual Brio 101 + FLIR Grasshopper3 logger.
 
-Keithley 6514 measures voltage across a known parallel RC network.
-Charge is derived in real time as Q = C × V.
-
-    R = 5.15 MΩ,  C = 93.4 nF  →  τ ≈ 0.48 s
+Keithley 6514 in current mode; charge is derived in real time via
+trapezoidal integration of the current trace.
 
 Brio webcams are captured via OpenCV (cross-platform).
 FLIR Grasshopper3 is captured via PySpin / Spinnaker SDK.
@@ -11,7 +9,7 @@ FLIR Grasshopper3 is captured via PySpin / Spinnaker SDK.
 Output:
     Kiethley_data/session_<stamp>/
         meta.txt
-        electrometer.csv          time,voltage,charge
+        electrometer.csv          time,current
         cam0/000000.jpg ...       (Brio 0)
         cam0_frames.csv
         cam1/... cam1_frames.csv  (Brio 1)
@@ -19,7 +17,6 @@ Output:
         flir_frames.csv
 """
 
-import sys
 import os
 import platform
 import queue
@@ -39,8 +36,6 @@ from PIL import Image, ImageTk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-# repo root on sys.path so `coms` (the port map) is importable
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from coms import port
 
 # ============ CONFIG ============
@@ -51,18 +46,19 @@ IS_LINUX = platform.system() == 'Linux'
 
 # --- electrometer ---
 DELAY_MS      = 5
+PREFACTOR     = 1e12          # C -> pC
 SERIAL_PORT   = port('keithley')
 BAUDRATE      = 9600
 PLOT_WINDOW_S = 10
 ECHO_RAW      = False
 
-# --- RC circuit ---
-CAP_F         = 93.4e-9      # 93.4 nF
-RES_OHM       = 5.15e6       # 5.15 MΩ
-TAU_S         = RES_OHM * CAP_F   # ≈ 0.481 s
+# --- Arduino relay controller ---
+RELAY_ENABLED = True
+RELAY_PORT    = port('arduino')
+RELAY_BAUD    = 9600
 
 # --- Brio webcams (OpenCV) ---
-BRIO_INDICES   = [0,1]          # v4l2 /dev/video indices or DShow indices
+BRIO_INDICES   = [0, 1]         # v4l2 /dev/video indices or DShow indices
 BRIO_WIDTH     = 1920
 BRIO_HEIGHT    = 1080
 BRIO_FPS       = 15
@@ -84,8 +80,8 @@ PREVIEW_MS = 150
 BRIO_SAVE_EVERY = max(1, round(BRIO_FPS / BRIO_SAVE_FPS))
 FLIR_SAVE_EVERY = max(1, round(FLIR_FPS / FLIR_SAVE_FPS))
 
-SETUP_CMD = (b"*RST; :SYST:ZCH ON; :SENS:FUNC 'VOLT'; :VOLT:RANG 2; "
-             b":SENS:VOLT:NPLC 1; :FORM:ELEM READ; :SYST:ZCH OFF; "
+SETUP_CMD = (b"*RST; :SYST:ZCH ON; :SENS:FUNC 'CHAR'; CHAR:RANG 20e-9; "
+             b":SENS:CHAR:NPLC 1; :FORM:ELEM READ; :SYST:ZCH OFF; "
              b":CALC2:NULL:STAT ON\n")
 
 # Try importing PySpin
@@ -102,7 +98,7 @@ except ImportError:
 # ----------------------------------------------------------- electrometer
 
 class AcquisitionThread(threading.Thread):
-    """Owns the serial port.  Pushes (t, V) samples to a queue for the GUI."""
+    """Owns the serial port.  Pushes (t, I) samples to a queue for the GUI."""
 
     def __init__(self, port, baudrate, delay_ms, out_queue, filepath, t0):
         super().__init__(daemon=True)
@@ -123,7 +119,7 @@ class AcquisitionThread(threading.Thread):
             with serial.Serial(self.port, self.baudrate, timeout=5) as em, \
                  open(self.filepath, 'w') as f:
 
-                f.write('time,voltage,charge\n')
+                f.write('time,charge\n')
                 f.flush()
                 em.write(SETUP_CMD)
 
@@ -134,14 +130,13 @@ class AcquisitionThread(threading.Thread):
                     if ECHO_RAW:
                         print(repr(raw))
                     try:
-                        v = float(raw)
+                        val = float(raw)
                     except ValueError:
-                        v = np.nan
+                        val = np.nan
 
-                    q = v * CAP_F if not np.isnan(v) else np.nan
-                    f.write(f'{t},{v},{q}\n')
+                    f.write(f'{t},{val}\n')
                     f.flush()
-                    self.out_queue.put((t, v))
+                    self.out_queue.put((t, val))
                     time.sleep(self.delay_s)
 
         except Exception:
@@ -250,7 +245,6 @@ class OpenCVCamera(threading.Thread):
         if self.recording.is_set():
             self._was_recording = True
             if self._decimate % BRIO_SAVE_EVERY == 0:
-                # encode to JPEG for saving
                 _, jpeg = cv2.imencode('.jpg', frame,
                                        [cv2.IMWRITE_JPEG_QUALITY, 95])
                 try:
@@ -304,12 +298,10 @@ class SpinnakerCamera(threading.Thread):
         self._stop_event.set()
 
     def latest_frame_rgb(self):
-        """Return a BGR→RGB preview frame (mono displayed as grey)."""
         with self._lock:
             if self._latest_frame is None:
                 return None
-            mono8 = self._latest_frame
-            return cv2.cvtColor(mono8, cv2.COLOR_GRAY2RGB)
+            return cv2.cvtColor(self._latest_frame, cv2.COLOR_GRAY2RGB)
 
     def arm(self, save_queue, t0):
         self.n = 0
@@ -347,7 +339,6 @@ class SpinnakerCamera(threading.Thread):
             cam = cam_list[0]
             cam.Init()
 
-            # --- configure ---
             nodemap = cam.GetNodeMap()
 
             # Continuous acquisition
@@ -369,7 +360,7 @@ class SpinnakerCamera(threading.Thread):
                 if PySpin.IsAvailable(node_fr) and PySpin.IsWritable(node_fr):
                     node_fr.SetValue(min(FLIR_FPS, node_fr.GetMax()))
             except PySpin.SpinnakerException:
-                pass  # some cams don't expose this node
+                pass
 
             # Pixel format — try Mono16 first, fall back to Mono8
             self._pixel_fmt = 'Mono8'
@@ -393,7 +384,7 @@ class SpinnakerCamera(threading.Thread):
 
             while not self._stop_event.is_set():
                 try:
-                    image = cam.GetNextImage(1000)  # 1 s timeout
+                    image = cam.GetNextImage(1000)
                 except PySpin.SpinnakerException:
                     continue
 
@@ -416,7 +407,10 @@ class SpinnakerCamera(threading.Thread):
                 image.Release()
                 self._on_frame(raw, preview)
 
-            cam.EndAcquisition()
+            try:
+                cam.EndAcquisition()
+            except PySpin.SpinnakerException:
+                pass
 
         except Exception:
             self.error = traceback.format_exc()
@@ -450,8 +444,7 @@ class SpinnakerCamera(threading.Thread):
             self._was_recording = True
             if self._decimate % FLIR_SAVE_EVERY == 0:
                 try:
-                    self.save_queue.put_nowait((now - self.t0,
-                                                raw, self.n))
+                    self.save_queue.put_nowait((now - self.t0, raw, self.n))
                     self.n += 1
                     self.saved += 1
                 except queue.Full:
@@ -497,11 +490,9 @@ class FrameWriter(threading.Thread):
                     fpath = self.out_dir / fname
 
                     if self.ext == '.jpg' and isinstance(data, bytes):
-                        # raw JPEG bytes from OpenCV imencode
                         with open(fpath, 'wb') as f:
                             f.write(data)
                     else:
-                        # numpy array — use cv2.imwrite (handles 16-bit PNG)
                         cv2.imwrite(str(fpath), data)
 
                     idx.write(f'{t:.6f},{fname}\n')
@@ -520,19 +511,26 @@ class ElectrometerApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title(
-            f'Electrometer (Voltage) + Cameras   '
-            f'C={CAP_F*1e9:.1f} nF   R={RES_OHM/1e6:.2f} MΩ   '
-            f'τ={TAU_S*1e3:.0f} ms'
-        )
+        self.root.title('Electrometer (Charge) + Cameras')
 
         self.acq_thread = None
         self.data_queue = None
         self.writers = []
         self.recording = False
         self.t_vec = []
-        self.v_vec = []
+        self.q_vec = []
         self.session_dir = None
+
+        # --- Arduino relay connection ---
+        self.relay_ser = None
+        if RELAY_ENABLED:
+            try:
+                self.relay_ser = serial.Serial(RELAY_PORT, RELAY_BAUD,
+                                               timeout=1)
+                time.sleep(2)       # Arduino resets on serial open
+                print(f'[relay] connected on {RELAY_PORT}')
+            except Exception as e:
+                print(f'[relay] could not open {RELAY_PORT}: {e}')
 
         # --- controls ---
         controls = ttk.Frame(root, padding=8)
@@ -550,23 +548,34 @@ class ElectrometerApp:
         ttk.Label(controls, textvariable=self.status_var).pack(side=tk.LEFT,
                                                                padx=12)
 
+        # --- relay buttons ---
+        relay_frame = ttk.LabelFrame(controls, text='Relays', padding=4)
+        relay_frame.pack(side=tk.RIGHT, padx=8)
+
+        ttk.Button(relay_frame, text='Lamp A',
+                   command=lambda: self._relay_send('a')).pack(side=tk.LEFT,
+                                                               padx=2)
+        ttk.Button(relay_frame, text='Lamp B',
+                   command=lambda: self._relay_send('b')).pack(side=tk.LEFT,
+                                                               padx=2)
+        ttk.Button(relay_frame, text='Both Off',
+                   command=lambda: self._relay_send('o')).pack(side=tk.LEFT,
+                                                               padx=2)
+
+        self.relay_var = tk.StringVar(
+            value='connected' if self.relay_ser else 'not connected')
+        ttk.Label(relay_frame, textvariable=self.relay_var).pack(side=tk.LEFT,
+                                                                  padx=6)
+
         # --- body: plots left, previews right ---
         body = ttk.Frame(root)
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        self.fig = Figure(figsize=(7, 5), dpi=100)
-        self.ax_v = self.fig.add_subplot(211)
-        self.ax_q = self.fig.add_subplot(212, sharex=self.ax_v)
-
-        self.ax_v.set_ylabel('voltage [mV]')
-        self.ax_v.tick_params(labelbottom=False)
-        self.line_v, = self.ax_v.plot([], [], 'b.-', markersize=3,
-                                      linewidth=0.8)
-
-        self.ax_q.set_xlabel('time [s]')
-        self.ax_q.set_ylabel('charge [pC]')
-        self.line_q, = self.ax_q.plot([], [], 'r.-', markersize=3,
-                                      linewidth=0.8)
+        self.fig = Figure(figsize=(7, 4), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_xlabel('time [s]')
+        self.ax.set_ylabel('charge [pC]')
+        self.line, = self.ax.plot([], [], 'ro-', markersize=3)
 
         self.fig.tight_layout()
 
@@ -574,14 +583,14 @@ class ElectrometerApp:
         self.canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH,
                                          expand=True)
 
-        # --- camera previews (scrollable column) ---
+        # --- camera previews ---
         cam_panel = ttk.Frame(body, padding=4)
         cam_panel.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.cams = []          # all camera threads (OpenCV + FLIR)
+        self.cams = []
         self.cam_labels = []
         self.cam_status_vars = []
-        self.cam_exts = []      # save extension per camera
+        self.cam_exts = []
 
         # Brio webcams
         for idx in BRIO_INDICES:
@@ -599,6 +608,19 @@ class ElectrometerApp:
 
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
         self.root.after(PREVIEW_MS, self._update_previews)
+
+    def _relay_send(self, cmd):
+        """Send a single character to the Arduino relay controller."""
+        if self.relay_ser is None or not self.relay_ser.is_open:
+            self.relay_var.set('not connected')
+            return
+        try:
+            self.relay_ser.write(cmd.encode())
+            labels = {'a': 'Lamp A ON', 'b': 'Lamp B ON', 'o': 'Both OFF'}
+            self.relay_var.set(labels.get(cmd, cmd))
+        except Exception as e:
+            self.relay_var.set(f'error: {e}')
+            print(f'[relay] write error: {e}')
 
     def _add_cam_panel(self, parent, cam, ext):
         frame = ttk.LabelFrame(parent, text=cam.cam_name, padding=4)
@@ -619,9 +641,8 @@ class ElectrometerApp:
 
     def start(self):
         self.t_vec = []
-        self.v_vec = []
-        self.line_v.set_data([], [])
-        self.line_q.set_data([], [])
+        self.q_vec = []
+        self.line.set_data([], [])
         self.canvas.draw_idle()
 
         stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -634,16 +655,15 @@ class ElectrometerApp:
             f.write(f'wall_clock_start\t{datetime.now().isoformat()}\n')
             f.write(f'serial_port\t{SERIAL_PORT}\n')
             f.write(f'delay_ms\t{DELAY_MS}\n')
-            f.write(f'mode\tvoltage\n')
-            f.write(f'capacitance_F\t{CAP_F}\n')
-            f.write(f'resistance_Ohm\t{RES_OHM}\n')
-            f.write(f'tau_s\t{TAU_S}\n')
+            f.write(f'mode\tcharge\n')
             f.write(f'brio_resolution\t{BRIO_WIDTH}x{BRIO_HEIGHT}\n')
             f.write(f'brio_capture_fps\t{BRIO_FPS}\n')
             f.write(f'brio_save_fps\t{BRIO_SAVE_FPS}\n')
             f.write(f'flir_enabled\t{FLIR_ENABLED}\n')
-            f.write(f'flir_capture_fps\t{FLIR_FPS}\n')
-            f.write(f'flir_save_fps\t{FLIR_SAVE_FPS}\n')
+            if FLIR_ENABLED:
+                f.write(f'flir_capture_fps\t{FLIR_FPS}\n')
+                f.write(f'flir_save_fps\t{FLIR_SAVE_FPS}\n')
+                f.write(f'flir_save_fmt\t{FLIR_SAVE_FMT}\n')
             for cam in self.cams:
                 f.write(f'{cam.cam_name}\ttype={type(cam).__name__}\n')
 
@@ -704,15 +724,15 @@ class ElectrometerApp:
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
 
-        good = int(np.count_nonzero(~np.isnan(self.v_vec))) \
-            if self.v_vec else 0
+        good = int(np.count_nonzero(~np.isnan(self.q_vec))) \
+            if self.q_vec else 0
         cam_bits = ' | '.join(
             f'{c.cam_name}: {c.saved}'
             + (f' ({c.dropped} dropped)' if c.dropped else '')
             for c in self.cams
         )
         self.status_var.set(
-            f'Stopped. {good}/{len(self.v_vec)} valid readings. '
+            f'Stopped. {good}/{len(self.q_vec)} valid readings. '
             f'Frames {cam_bits}. -> {self.session_dir.name}'
         )
 
@@ -730,30 +750,24 @@ class ElectrometerApp:
                 if item is None:
                     ended = True
                     break
-                t, v = item
+                t, val = item
                 self.t_vec.append(t)
-                self.v_vec.append(v)
+                self.q_vec.append(val)
                 updated = True
         except queue.Empty:
             pass
 
         if updated:
             t_arr = np.array(self.t_vec)
-            v_arr = np.array(self.v_vec)
-
-            v_mv = v_arr * 1e3
-            q_pc = v_arr * CAP_F * 1e12
+            q_arr = np.array(self.q_vec) * PREFACTOR
 
             i0 = np.searchsorted(t_arr, t_arr[-1] - PLOT_WINDOW_S)
-            self.line_v.set_data(t_arr[i0:], v_mv[i0:])
-            self.line_q.set_data(t_arr[i0:], q_pc[i0:])
+            self.line.set_data(t_arr[i0:], q_arr[i0:])
 
             right = max(t_arr[-1], PLOT_WINDOW_S)
-            self.ax_v.set_xlim(right - PLOT_WINDOW_S, right)
-            self.ax_v.relim()
-            self.ax_v.autoscale_view(scalex=False)
-            self.ax_q.relim()
-            self.ax_q.autoscale_view(scalex=False)
+            self.ax.set_xlim(right - PLOT_WINDOW_S, right)
+            self.ax.relim()
+            self.ax.autoscale_view(scalex=False)
 
             self.canvas.draw_idle()
 
@@ -815,6 +829,12 @@ class ElectrometerApp:
             cam.stop()
         for cam in self.cams:
             cam.join(timeout=3)
+        if self.relay_ser is not None:
+            try:
+                self.relay_ser.write(b'o')   # both off on exit
+                self.relay_ser.close()
+            except Exception:
+                pass
         self.root.destroy()
 
 
